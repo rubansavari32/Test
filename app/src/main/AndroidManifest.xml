@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Attaching audio effects to other apps' sessions. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- Lets us find and launch the OnePlus / HeyMelody companion app. -->
     <queries>
         <package android:name="com.heytap.headset" />
         <package android:name="com.oneplus.twspods" />
+        <package android:name="com.spotify.music" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="market" />
@@ -25,6 +32,20 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Makes this app show up as the equalizer in Spotify's playback settings. -->
+            <intent-filter>
+                <action android:name="android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
+
+        <service
+            android:name=".MusicSpatialService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps a headphone virtualizer attached to other music apps' audio sessions" />
+        </service>
     </application>
 </manifest>

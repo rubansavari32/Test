@@ -18,15 +18,18 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,6 +40,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.rubansavari.budsspatial.MusicSpatialService
+import com.rubansavari.budsspatial.MusicSpatialState
 import com.rubansavari.budsspatial.SpatialState
 import com.rubansavari.budsspatial.SpatialTestTone
 import kotlinx.coroutines.flow.StateFlow
@@ -63,6 +68,12 @@ fun MainScreen(
     onOrbitSpeed: (Float) -> Unit,
     onPickFile: () -> Unit,
     onTogglePlayback: () -> Unit,
+    musicState: StateFlow<MusicSpatialState>,
+    initialStrength: Short,
+    initialGlobalMode: Boolean,
+    onMusicSpatialToggle: (Boolean) -> Unit,
+    onMusicSettings: (Short, Boolean) -> Unit,
+    onOpenSpotify: () -> Unit,
     onOpenBluetoothSettings: () -> Unit,
     onOpenSoundSettings: () -> Unit,
     onOpenCompanionApp: () -> Unit,
@@ -72,6 +83,7 @@ fun MainScreen(
     val azimuth by toneAzimuth.collectAsStateWithLifecycle()
     val playing by tonePlaying.collectAsStateWithLifecycle()
     val player by playerState.collectAsStateWithLifecycle()
+    val music by musicState.collectAsStateWithLifecycle()
 
     Scaffold { padding ->
         Column(
@@ -92,6 +104,10 @@ fun MainScreen(
             HeadsetCard(state, onRefresh)
             StatusCard(state)
             SetupCard(state, onOpenBluetoothSettings, onOpenSoundSettings, onOpenCompanionApp)
+            MusicCard(
+                music, initialStrength, initialGlobalMode,
+                onMusicSpatialToggle, onMusicSettings, onOpenSpotify,
+            )
             TestCard(state, azimuth, playing, onPlayTone, onStopTone, onOrbitSpeed)
             PlayerCard(state, player, onPickFile, onTogglePlayback)
         }
@@ -197,6 +213,89 @@ private fun SetupCard(
             OutlinedButton(onClick = onOpenSoundSettings) { Text("Sound") }
         }
         OutlinedButton(onClick = onOpenCompanionApp) { Text("Open OnePlus / HeyMelody app") }
+    }
+}
+
+@Composable
+private fun MusicCard(
+    music: MusicSpatialState,
+    initialStrength: Short,
+    initialGlobalMode: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onSettings: (Short, Boolean) -> Unit,
+    onOpenSpotify: () -> Unit,
+) {
+    SectionCard("Spotify & other music apps") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Spatialize music from other apps",
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(checked = music.running, onCheckedChange = onToggle)
+        }
+        Text(
+            "Adds 3D headphone sound to Spotify and other players that support equalizer apps. " +
+                "Keep it on in the background; a notification shows while it runs.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+
+        var strength by remember { mutableFloatStateOf(initialStrength.toFloat()) }
+        var global by remember { mutableStateOf(initialGlobalMode) }
+        Text("Strength: ${(strength / 10).toInt()}%", style = MaterialTheme.typography.bodySmall)
+        Slider(
+            value = strength,
+            onValueChange = { strength = it },
+            onValueChangeFinished = { onSettings(strength.toInt().toShort(), global) },
+            valueRange = 0f..1000f,
+        )
+
+        if (music.running) {
+            val apps = music.sessions.filter { it.sessionId != MusicSpatialService.GLOBAL_SESSION }
+            if (apps.isEmpty()) {
+                Text(
+                    "Waiting for Spotify… If music is already playing, close Spotify fully " +
+                        "(swipe it away) and open it again so it announces itself to this app.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            music.sessions.forEach { s ->
+                val name = when {
+                    s.sessionId == MusicSpatialService.GLOBAL_SESSION -> "All apps (global mode)"
+                    s.packageName == "com.spotify.music" -> "Spotify"
+                    else -> s.packageName ?: "Session ${s.sessionId}"
+                }
+                val detail = when {
+                    s.error != null -> "couldn't attach (${s.error})"
+                    s.binaural -> "3D headphone mode"
+                    else -> "virtualizer on (phone doesn't report binaural mode)"
+                }
+                StatusRow(s.error == null, "$name — $detail")
+            }
+        }
+
+        OutlinedButton(onClick = onOpenSpotify) { Text("Open Spotify") }
+        Text(
+            "Tip: if nothing appears, in Spotify go to Settings → Playback → Equalizer and pick " +
+                "Buds Spatial. Don't also turn on the buds' own spatial mode in HeyMelody, " +
+                "or the effect is applied twice.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(
+                checked = global,
+                onCheckedChange = {
+                    global = it
+                    onSettings(strength.toInt().toShort(), it)
+                },
+            )
+            Text(
+                "Global mode (experimental): try to affect all audio, for apps that don't announce themselves",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 

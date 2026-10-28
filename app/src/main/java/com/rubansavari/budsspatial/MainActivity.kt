@@ -1,8 +1,11 @@
 package com.rubansavari.budsspatial
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.media.audiofx.AudioEffect
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -32,12 +35,19 @@ class MainActivity : ComponentActivity() {
         if (uri != null) playFile(uri)
     }
 
+    private val requestNotifications =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            // The service runs either way; the permission only makes its notification visible.
+            MusicSpatialService.start(this)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         monitor = SpatialAudioMonitor(this)
         player = buildPlayer()
+        handleEqualizerIntent(intent)
 
         setContent {
             AppTheme {
@@ -63,12 +73,32 @@ class MainActivity : ComponentActivity() {
                             player.play()
                         }
                     },
+                    musicState = MusicSpatialService.state,
+                    initialStrength = MusicSpatialService.strength(this),
+                    initialGlobalMode = MusicSpatialService.globalMode(this),
+                    onMusicSpatialToggle = ::setMusicSpatial,
+                    onMusicSettings = { strength, global -> MusicSpatialService.update(this, strength, global) },
+                    onOpenSpotify = ::openSpotify,
                     onOpenBluetoothSettings = { launch(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
                     onOpenSoundSettings = { launch(Intent(Settings.ACTION_SOUND_SETTINGS)) },
                     onOpenCompanionApp = ::openCompanionApp,
                     onRefresh = monitor::refresh,
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleEqualizerIntent(intent)
+    }
+
+    /** Spotify's "Equalizer" button opens us with its audio session; spatialize it. */
+    private fun handleEqualizerIntent(intent: Intent?) {
+        if (intent?.action != AudioEffect.ACTION_DISPLAY_AUDIO_EFFECT_CONTROL_PANEL) return
+        val session = intent.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, AudioEffect.ERROR)
+        if (session != AudioEffect.ERROR && session != 0) {
+            MusicSpatialService.attachSession(this, session, intent.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME))
         }
     }
 
@@ -140,6 +170,22 @@ class MainActivity : ComponentActivity() {
         player.play()
     }
 
+    private fun setMusicSpatial(enabled: Boolean) {
+        if (!enabled) {
+            MusicSpatialService.stop(this)
+        } else if (Build.VERSION.SDK_INT >= 33) {
+            requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            MusicSpatialService.start(this)
+        }
+    }
+
+    private fun openSpotify() {
+        val intent = packageManager.getLaunchIntentForPackage(SPOTIFY_PACKAGE)
+            ?: Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$SPOTIFY_PACKAGE"))
+        launch(intent)
+    }
+
     /**
      * OnePlus phones have Buds settings built into Bluetooth settings; on other phones
      * the HeyMelody app controls the buds' own spatial audio / head tracking switches.
@@ -172,6 +218,8 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         /** HeyMelody first (what the Play Store link points to), then the older OnePlus app. */
+        const val SPOTIFY_PACKAGE = "com.spotify.music"
+
         val COMPANION_PACKAGES = listOf("com.heytap.headset", "com.oneplus.twspods")
     }
 }
